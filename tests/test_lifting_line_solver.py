@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 
 import sys
-sys.path.append('C:/Users/charl/My Drive/Documents/Python3/MyPackages/liftingline')
+sys.path.append('home/charlie/Documents/Python3/MyPackages/liftingline')
 import liftingline as ll
 
 

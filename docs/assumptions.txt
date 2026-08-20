@@ -1,0 +1,3 @@
+downwash w is much smaller then V (omission of tan-1)
+
+Vinf >> p*y
