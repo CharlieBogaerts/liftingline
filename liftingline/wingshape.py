@@ -1,20 +1,9 @@
-from dataclasses import dataclass
 import numpy as np
+from liftingline.control_surface import ControlSurface
 
-
-@dataclass
-class ControlSurface:
-    spans: np.ndarray  # Absolute spanwise positions [y_start, ..., y_end]
-    delta_alpha0: np.ndarray  # Local d(alpha_0)/d(delta) shift at each spanwise point
-    symmetric: bool = False  # False = Aileron mode (-left, +right), True = Flap mode (+left, +right)
-
-    def __post_init__(self):
-        self.spans = np.asarray(self.spans, dtype=float)
-        self.delta_alpha0 = np.asarray(self.delta_alpha0, dtype=float)
 
 
 class WingShape:
-
     def __init__(
         self,
         airfoil_spans,
@@ -71,3 +60,11 @@ class WingShape:
         else:
             # Aileron behavior: Anti-symmetric (+1 left, -1 right)
             return np.where(y_arr >= 0, -alpha_shift, alpha_shift)
+
+    def surface_area(self):
+        """Calculates the total wing surface area using trapezoidal integration."""
+        return np.trapezoid(self.chords, self.spans) * 2.0
+
+    def aspect_ratio(self):
+        """Calculates the wing aspect ratio."""
+        return self.span**2 / self.surface_area()

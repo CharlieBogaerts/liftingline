@@ -121,5 +121,30 @@ class TestWingShape(unittest.TestCase):
         np.testing.assert_array_equal(res, np.zeros_like(y_query))
 
 
+
+class TestSquareWingShape(unittest.TestCase):
+    def setUp(self):
+        # Square wing: constant chord, no twist
+        self.spans = [0.0, 5.0]
+        self.chords = [2.0, 2.0]
+        self.alphas = [0.1, 0.1]  # radians
+        self.wing = ll.WingShape(
+            airfoil_spans=self.spans,
+            airfoil_chords=self.chords,
+            airfoil_alphas=self.alphas,
+        )
+
+    def test_surface_area(self):
+        """Check that surface area is calculated correctly for a square wing."""
+        expected_area = 2.0 * 5.0 * 2.0  # chord * semi-span * 2
+        self.assertAlmostEqual(self.wing.surface_area(), expected_area)
+
+    def test_aspect_ratio(self):
+        """Check that aspect ratio is calculated correctly."""
+        S = self.wing.surface_area()
+        expected_AR = (self.wing.span**2) / S
+        self.assertAlmostEqual(self.wing.aspect_ratio(), expected_AR)
+
+
 if __name__ == "__main__":
     unittest.main()

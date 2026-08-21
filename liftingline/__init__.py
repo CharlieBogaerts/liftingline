@@ -1,3 +1,3 @@
-from liftingline.liftinglinesolver import LiftingLineSolver
+from liftingline.lifting_line_solver import LiftingLineSolver
 from liftingline.wingshape import WingShape
-from liftingline.wingshape import ControlSurface
+from liftingline.control_surface import ControlSurface
