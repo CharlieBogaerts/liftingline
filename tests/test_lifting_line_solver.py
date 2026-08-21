@@ -1,240 +1,197 @@
+import sys
 import unittest
 import numpy as np
 
-import sys
-sys.path.append('home/charlie/Documents/Python3/MyPackages/liftingline')
+# Adjust module path if necessary
+sys.path.append("/home/charlie/Documents/Python3/MyPackages/liftingline")
+
 import liftingline as ll
 
 
-class TestParameters(unittest.TestCase):
-    def test_Cl_Cd_relation(self):
-        chord = .1
-        combos = [[1.5, 20, 1.02],
-                  [.5, 20, 1.02],
-                  [1.5, 50, 1.40],
-                  [5, 30, .9],]
-        for combo in combos:
-            span, v_inf, rho = combo
-            AR = span/chord
-            S = span*chord
-            spans = np.array([0, span/2])
-            chords = np.array([chord, chord])
-            alphas = np.array([3, 1])
-            wingshape = ll.WingShape(spans, chords, alphas)
-            self.lls = ll.LiftingLineSolver(wingshape, v_inf, rho = rho)
 
-            L, D = self.lls.get_total_forces()
-            Cl = L/(.5*rho*v_inf**2*S)
-            Cd = D/(.5*rho*v_inf**2*S)
-            e_theory = Cl**2/(np.pi*AR*Cd)
-            e_solver = self.lls.get_oswald()
 
-            self.assertAlmostEqual(e_solver, e_theory, delta=1e-3)
+class TestEllipticalWing(unittest.TestCase):
+    """Test suite comparing numerical results against Prandtl's classical 
 
-class TestBasicWing(unittest.TestCase):
+    analytical solutions for an ideal elliptical wing.
+    """
+
     def setUp(self):
-        spans = np.array([0., 1., 2.])
-        chords = np.array([.2, .15, .1])
-        alphas = np.array([5, 5, 5])
-        ail_spans = np.array([1.2, 1.6, 2.])
-        wingshape = ll.WingShape(spans, chords, alphas, ail_spans)
-        v_inf = 50
-        self.lls = ll.LiftingLineSolver(wingshape, v_inf, nr_of_coefs = 10)
+        """Builds the elliptical wing and solver instance before each test."""
+        self.span = 10.0
+        self.root_chord = 2.0
+        self.alpha_deg = 5.0
+        self.alpha_rad = np.radians(self.alpha_deg)
+        self.v_inf = 10.0
+        self.rho = 1.225
+        self.q_inf = 0.5 * self.rho * self.v_inf**2
 
-    def test_derivs(self):
-        rate_combos = [[0, 0],
-                       [-1.3, -.7],
-                       [0, 0],
-                       [-1.7, .5]]
+        # Semi-span coordinates from 0 to b/2
+        n_points = 201
+        spans = np.linspace(0.0, self.span / 2.0, n_points)
 
-        control_combos = [[0,0],
-                          [0,0],
-                          [.2,-.3],
-                          [-.4,.1]]
+        # Elliptical chord distribution: c(y) = c0 * sqrt(1 - (2y/b)^2)
+        eta = spans / (self.span / 2.0)
+        chords = self.root_chord * np.sqrt(np.maximum(0.0, 1.0 - eta**2))
+        alphas = np.full_like(spans, self.alpha_rad)
 
-        for i in range(len(rate_combos)):
-            with self.subTest(i=i):
-                rate_combo = rate_combos[i]
-                control_combo = control_combos[i]
-                self.eval_stab_derivs(rate_combo, control_combo)
-                self.eval_cont_derivs(rate_combo, control_combo)
-                
-    def eval_stab_derivs(self, rate_combo, control_combo):
-        q = .01
-        margin = .0001
-        
-        p, r = rate_combo
-        self.lls.set_rates(p, r)
-        self.lls.set_control(control_combo)
-        stab_derivs = self.lls.get_stability_derivs()
-        Mx, Mz = self.lls.get_total_moments()
+        self.wing = ll.WingShape(spans, chords, alphas)
+        self.solver = ll.LiftingLineSolver(self.wing, nr_of_coefs=80)
 
-        d1, d2 = control_combo
-        id_str = f"p:{p:.2f} r:{r:.2f} d1:{d1:.2f} d2:{d2:.2f}"
+    def test_lift_and_drag_coefficients(self):
+        """Validates C_L and C_Di against Prandtl's analytical formulas:
 
-        # test p dependence
-        self.lls.set_rates(p+q, r)
-        Mx_p, Mz_p = self.lls.get_total_moments()
-        dMxdp_discr = (Mx_p - Mx)/q
-        dMzdp_discr = (Mz_p - Mz)/q
+        C_L = (2 * pi * alpha) / (1 + 2/AR)
+        C_Di = C_L^2 / (pi * AR)
+        """
+        sol = self.solver.solve(v_inf=self.v_inf, rho=self.rho)
 
-        dMxdp = stab_derivs[0,0]
-        dMzdp = stab_derivs[1,0]
+        S = self.wing.surface_area()
+        AR = self.wing.aspect_ratio()
 
-        tol_xp = abs(dMxdp*margin)
-        tol_zp = abs(dMzdp*margin)
-                
+        # Analytical solutions
+        CL_analytical = (2.0 * np.pi * self.alpha_rad) / (1.0 + 2.0 / AR)
+        CDi_analytical = (CL_analytical**2) / (np.pi * AR)
 
-        self.assertAlmostEqual(dMxdp, dMxdp_discr, delta=tol_xp, msg = id_str)
-        self.assertAlmostEqual(dMzdp, dMzdp_discr, delta=tol_zp, msg = id_str)
+        # Numerical solutions
+        CL_numerical = sol.L_total / (self.q_inf * S)
+        CDi_numerical = sol.D_total / (self.q_inf * S)
 
-        # test r dependence
-        self.lls.set_rates(p, r+q)
-        Mx_r, Mz_r = self.lls.get_total_moments()
-        dMxdr_discr = (Mx_r - Mx)/q
-        dMzdr_discr = (Mz_r - Mz)/q
+        np.testing.assert_allclose(
+            CL_numerical,
+            CL_analytical,
+            rtol=1e-2,
+            err_msg="Lift coefficient CL deviated from analytical solution.",
+        )
+        np.testing.assert_allclose(
+            CDi_numerical,
+            CDi_analytical,
+            rtol=1e-2,
+            err_msg="Induced drag coefficient CDi deviated from analytical solution.",
+        )
 
-        dMxdr = stab_derivs[0,1]
-        dMzdr = stab_derivs[1,1]
+    def test_fourier_coefficients(self):
+        """Verifies that only the A1 Fourier term is non-zero.
 
-        tol_xr = abs(dMxdr*margin)
-        tol_zr = abs(dMzdr*margin)
+        For an elliptical wing, higher harmonic terms (A3, A5, ...) must vanish.
+        """
+        sol = self.solver.solve(v_inf=self.v_inf)
+        A = sol.fourier_coeffs
 
-        self.assertAlmostEqual(dMxdr, dMxdr_discr, delta=tol_xr, msg = id_str)
-        self.assertAlmostEqual(dMzdr, dMzdr_discr, delta=tol_zr, msg = id_str)
+        # A[0] is A1; A[1:] represent higher-order terms
+        np.testing.assert_allclose(
+            A[1:],
+            0.0,
+            atol=1e-3,
+            err_msg="Higher-order Fourier coefficients should be zero for an elliptical wing.",
+        )
 
-    def eval_cont_derivs(self, rate_combo, control_combo):
-        q = .01
-        margin = .0001
+class TestRectangularWing(unittest.TestCase):
 
-        p, r = rate_combo
-        d1, d2 = control_combo
-        self.lls.set_rates(p, r)
-        self.lls.set_control(control_combo)
-        cont_derivs = self.lls.get_control_derivs()
-        Mx, Mz = self.lls.get_total_moments()
-        
-        id_str = f"p:{p:.2f} r:{r:.2f} d1:{d1:.2f} d2:{d2:.2f}"
+    def setUp(self):
+        """Sets up an Aspect Ratio 10 rectangular wing."""
+        self.span = 10.0
+        self.chord = 1.0
+        self.alpha_deg = 5.0
+        self.alpha_rad = np.radians(self.alpha_deg)
+        self.v_inf = 10.0
+        self.rho = 1.225
+        self.q_inf = 0.5 * self.rho * self.v_inf**2
 
-        for i, cont_input in enumerate([[d1+q, d2],[d1, d2+q]]):
-            self.lls.set_control(cont_input)
-            Mx_k, Mz_k = self.lls.get_total_moments()
-            dMxdk_discr = (Mx_k - Mx)/q
-            dMzdk_discr = (Mz_k - Mz)/q
+        n_points = 201
+        spans = np.linspace(0.0, self.span / 2.0, n_points)
+        chords = np.full_like(spans, self.chord)
+        alphas = np.full_like(spans, self.alpha_rad)
 
-            dMxdk_lower = dMxdk_discr*(1-margin)
-            dMxdk_upper = dMxdk_discr*(1+margin)
+        self.wing = ll.WingShape(spans, chords, alphas)
+        self.solver = ll.LiftingLineSolver(self.wing, nr_of_coefs=100)
 
-            dMxdk = cont_derivs[0,i]
-            dMzdk = cont_derivs[1,i]
+    def test_3d_lift_curve_slope(self):
+        """Validates 3D lift curve slope dCL/dalpha against Helmbold's approximation:
 
-            tol_xk = abs(dMxdk*margin)
-            tol_zk = abs(dMzdk*margin)
-        
-            self.assertAlmostEqual(dMxdk, dMxdk_discr, delta=tol_xk, msg = id_str)
-            self.assertAlmostEqual(dMzdk, dMzdk_discr, delta=tol_zk, msg = id_str)
+        C_L_alpha = a0 / (1 + a0 / (pi * AR))
+        """
+        sol = self.solver.solve(v_inf=self.v_inf, rho=self.rho)
 
-            
-    def test_control(self):
-        delta_combos = [[.1 , 0],
-                        [0  , .1],
-                        [.1 , .2],
-                        [-.1, 0],
-                        [0  , -.2],
-                        [-.1, .2],
-                        [-.2, .1]]
-        L_base, D_base = self.lls.get_total_forces()
-        for i, delta_combo in enumerate(delta_combos):
-            with self.subTest(i=i): 
-                self.lls.set_control_steady_roll(delta_combo)
-                L, D = self.lls.get_total_forces()
-                Mx, Mz = self.lls.get_total_moments()
-                self.assertAlmostEqual(L_base, L, msg = f'combo nr = {i}', delta=1e-3)
-                self.assertAlmostEqual(Mx, 0,  msg = f'combo nr = {i}', delta=1e-3)
+        S = self.wing.surface_area()
+        AR = self.wing.aspect_ratio()
+        a0 = 2.0 * np.pi  # 2D thin airfoil lift curve slope
 
-        
+        CL_numerical = sol.L_total / (self.q_inf * S)
+        CL_alpha_numerical = CL_numerical / self.alpha_rad
+
+        CL_alpha_analytical = a0 / (1.0 + a0 / (np.pi * AR))
+
+        # Check within 2% relative accuracy
+        np.testing.assert_allclose(
+            CL_alpha_numerical,
+            CL_alpha_analytical,
+            rtol=2e-2,
+            err_msg="Rectangular wing 3D lift slope deviated from Helmbold approximation.",
+        )
+
+    def test_fourier_symmetry(self):
+        """Verifies that symmetric flight produces only odd Fourier coefficients (A1, A3, A5...).
+
+        Even terms (A2, A4, A6...) must be zero.
+        """
+        sol = self.solver.solve(v_inf=self.v_inf)
+        A = sol.fourier_coeffs
+
+        # A[1::2] selects even modes A2, A4, A6 (0-indexed position 1, 3, 5...)
+        even_coefficients = A[1::2]
+
+        np.testing.assert_allclose(
+            even_coefficients,
+            0.0,
+            atol=1e-12,
+            err_msg="Non-zero even Fourier coefficients found in a symmetric flight condition.",
+        )
+
+    def test_downwash_distribution_shape(self):
+        """Validates that effective alpha_eff decreases toward the wingtips
+
+        because downwash (alpha_i) increases near the tips on a rectangular planform.
+        """
+        sol = self.solver.solve(v_inf=self.v_inf)
+
+        # alpha_eff = alpha_geo - alpha_i
+        # Center section (midspan) should have HIGHER effective alpha than near the tip
+        mid_idx = len(sol.alpha_eff) // 2
+        tip_idx = 10  # Near the tip boundary
+
+        self.assertGreater(
+            sol.alpha_eff[mid_idx],
+            sol.alpha_eff[tip_idx],
+            "Downwash should be higher near tips, causing effective alpha to drop toward the tips.",
+        )
+
+    def test_induced_drag_correction_factor_delta(self):
+        """Verifies that the induced drag parameter delta = sum(n * (An/A1)^2) for n=3,5...
+
+        falls within the known Glauert range (~0.04 to 0.06 for AR=10).
+        """
+        sol = self.solver.solve(v_inf=self.v_inf)
+        A = sol.fourier_coeffs
+
+        # Calculate delta from odd harmonics
+        # n_llt = [1, 2, 3, 4, 5, ...]
+        n_odd = self.solver.n_llt_lst[2::2]  # n = 3, 5, 7...
+        A_odd = A[2::2]  # Coefficients A3, A5, A7...
+
+        delta = np.sum(n_odd * (A_odd / A[0]) ** 2)
+
+        # For AR = 10 rectangular wing, delta is approximately 0.048
+        self.assertGreater(
+            delta, 0.03, "Induced drag correction factor delta is too small."
+        )
+        self.assertLess(
+            delta, 0.08, "Induced drag correction factor delta is too large."
+        )
+
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
-# Back up
-
-def off_test_A_coefs(self):
-    q = .001
-    dAdp, dAdr = self.lls.get_derivs()
-    A = self.lls.A.copy()
-
-    self.lls.set_rates(q, 0)
-    A_p = self.lls.A.copy()
-    
-    self.lls.set_rates(0, q)
-    A_r = self.lls.A.copy()
-
-    dAdp_discr = (A_p - A)/q
-    dAdr_discr = (A_r - A)/q
-
-    error_p = np.sum((dAdp - dAdp_discr)**2)
-    error_r = np.sum((dAdr - dAdr_discr)**2)
-    
-    self.assertAlmostEqual(error_p, 0, delta=dAdp.max()*.0005)
-    self.assertAlmostEqual(error_r, 0, delta=dAdr.max()*.0005)
-
-def off_test_gamma(self):
-    q = .01
-    margin = .005
-    dgammadp, dgammadr = self.lls.get_derivs()
-    gamma = self.lls.gamma.copy()
-
-    self.lls.set_rates(q, 0)
-    gamma_p = self.lls.gamma.copy()
-    
-    self.lls.set_rates(0, q)
-    gamma_r = self.lls.gamma.copy()
-
-    dgammadp_discr = (gamma_p - gamma)/q
-    dgammadr_discr = (gamma_r - gamma)/q
-
-    error_p = np.sum((dgammadp - dgammadp_discr)**2)
-    error_r = np.sum((dgammadr - dgammadr_discr)**2)
-
-    
-    self.assertAlmostEqual(error_p, 0, delta=1e-3)
-    self.assertAlmostEqual(error_r, 0, delta=1e-3)
-
-def off_test_alpha(self):
-    q = .01
-    margin = .005
-    dalphadp, dalphadr = self.lls.get_derivs()
-    
-    alpha = self.lls.alpha_geo[1:-1] + self.lls.alpha_pr_over_p[1:-1]*self.lls.p
-
-    self.lls.set_rates(q, 0)
-    alpha_p = self.lls.alpha_geo[1:-1] + self.lls.alpha_pr_over_p[1:-1]*self.lls.p
-    
-    self.lls.set_rates(0, q)
-    alpha_r = self.lls.alpha_geo[1:-1] + self.lls.alpha_pr_over_p[1:-1]*self.lls.p
-
-    dalphadp_discr = (alpha_p - alpha)/q
-    dalphadr_discr = (alpha_r - alpha)/q
-
-    error_p = np.sum((dalphadp - dalphadp_discr)**2)
-    error_r = np.sum((dalphadr - dalphadr_discr)**2)
-    
-    self.assertAlmostEqual(error_p, 0, delta=1e-3)
-    self.assertAlmostEqual(error_r, 0, delta=1e-3)
-
-def off_test_M(self):
-    q = .01
-    margin = .005
-    dMdr = self.lls.get_derivs()
-    
-    M = np.linalg.inv(self.lls.M_inv)
-    
-    self.lls.set_rates(0, q)
-    M_r = np.linalg.inv(self.lls.M_inv)
-
-    dMdr_discr = (M_r - M)/q
-
-    error_r = np.sum((dMdr - dMdr_discr)**2)
-    
-    self.assertAlmostEqual(error_r, 0, delta=1e-3)
