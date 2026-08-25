@@ -192,6 +192,64 @@ class TestRectangularWing(unittest.TestCase):
         )
 
 
+class TestRatePerturbations(unittest.TestCase):
+    def setUp(self):
+        """Sets up a baseline rectangular wing solver."""
+        self.span = 10.0
+        self.chord = 1.0
+        self.alpha_rad = np.radians(5.0)
+        self.v_inf = 10.0
+        self.rho = 1.225
+
+        spans = np.linspace(0.0, self.span / 2.0, 101)
+        chords = np.full_like(spans, self.chord)
+        alphas = np.full_like(spans, self.alpha_rad)
+
+        self.wing = ll.WingShape(spans, chords, alphas)
+        self.solver = ll.LiftingLineSolver(self.wing, nr_of_coefs=80)
+
+    def test_roll_rate_p_against_finite_difference(self):
+        """Validates dMx/dp and dMz/dp using central finite difference."""
+        p_base = 0.0
+        dp = 1e-3  # Small step size for linear perturbation
+
+        # Evaluate at p + dp and p - dp
+        sol_plus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, p=p_base + dp, eval_derivs=False)
+        sol_minus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, p=p_base - dp, eval_derivs=False)
+
+        # Central finite difference derivatives
+        dMx_dp_fd = (sol_plus.Mx - sol_minus.Mx) / (2.0 * dp)
+        dMz_dp_fd = (sol_plus.Mz - sol_minus.Mz) / (2.0 * dp)
+
+        # Analytical derivatives from solver at base point
+        sol_base = self.solver.solve(v_inf=self.v_inf, rho=self.rho, p=p_base, eval_derivs=True)
+        dMx_dp_ana = sol_base.stability_derivs[0, 0]  # [0, 0] is dMx/dp
+        dMz_dp_ana = sol_base.stability_derivs[1, 0]  # [1, 0] is dMz/dp
+
+        # Check analytical vs finite difference
+        np.testing.assert_allclose(dMx_dp_ana, dMx_dp_fd, rtol=1e-3)
+        np.testing.assert_allclose(dMz_dp_ana, dMz_dp_fd, rtol=1e-3)
+
+        # Verify physical sign (roll damping must be negative: dMx/dp < 0)
+        self.assertLess(dMx_dp_ana, 0.0, "Roll rate damping dMx/dp must be negative.")
+
+    def test_yaw_rate_r_against_finite_difference(self):
+        """Validates dMx/dr and dMz/dr using central finite difference."""
+        r_base = 0.0
+        dr = 1e-3
+
+        sol_plus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, r=r_base + dr, eval_derivs=False)
+        sol_minus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, r=r_base - dr, eval_derivs=False)
+
+        dMx_dr_fd = (sol_plus.Mx - sol_minus.Mx) / (2.0 * dr)
+        dMz_dr_fd = (sol_plus.Mz - sol_minus.Mz) / (2.0 * dr)
+
+        sol_base = self.solver.solve(v_inf=self.v_inf, rho=self.rho, r=r_base, eval_derivs=True)
+        dMx_dr_ana = sol_base.stability_derivs[0, 1]  # [0, 1] is dMx/dr
+        dMz_dr_ana = sol_base.stability_derivs[1, 1]  # [1, 1] is dMz/dr
+
+        np.testing.assert_allclose(dMx_dr_ana, dMx_dr_fd, rtol=1e-3)
+        np.testing.assert_allclose(dMz_dr_ana, dMz_dr_fd, rtol=1e-3)
 
 
 

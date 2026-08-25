@@ -72,8 +72,7 @@ class LiftingLineSolver:
                 alpha_eff,
                 gamma,
                 L,
-                M_inv,
-                A,
+                M_inv
             )
             ctrl_derivs = self._calc_control_derivs(
                 rho, v_theta, alpha_geo, alpha_eff, L, M_inv
@@ -144,7 +143,6 @@ class LiftingLineSolver:
         gamma,
         L,
         M_inv,
-        A,
     ):
         b = self.wingshape.span
 
