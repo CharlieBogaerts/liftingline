@@ -11,6 +11,34 @@ class WingShape:
         airfoil_alphas,
         controls: list[ControlSurface] = None,
     ):
+        # Convert raw inputs to NumPy arrays first
+        spans_raw = np.asarray(airfoil_spans, dtype=float)
+        chords_raw = np.asarray(airfoil_chords, dtype=float)
+        alphas_raw = np.asarray(airfoil_alphas, dtype=float)
+
+        # Validate raw NumPy arrays
+        invalid_spans = np.where(spans_raw < 0.0)[0]
+        if invalid_spans.size > 0:
+            raise ValueError(
+                f"Span station positions must be non-negative (y >= 0).\n"
+                f"  Invalid Indices: {invalid_spans.tolist()}\n"
+                f"  Invalid Values:  {spans_raw[invalid_spans].tolist()}"
+            )
+
+        invalid_chords = np.where(chords_raw <= 0.0)[0]
+        if invalid_chords.size > 0:
+            raise ValueError(
+                f"All airfoil chords must be strictly positive (c > 0).\n"
+                f"  Invalid Indices: {invalid_chords.tolist()}\n"
+                f"  Invalid Values:  {chords_raw[invalid_chords].tolist()}"
+            )
+
+        # Sort arrays by span location
+        sort_idx = np.argsort(spans_raw)
+        self.spans = spans_raw[sort_idx]
+        self.chords = chords_raw[sort_idx]
+        self.alphas = alphas_raw[sort_idx]
+        
         # Sort and store wing main planform arrays
         sort_idx = np.argsort(airfoil_spans)
         self.spans = np.asarray(airfoil_spans, dtype=float)[sort_idx]

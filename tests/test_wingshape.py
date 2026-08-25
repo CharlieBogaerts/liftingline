@@ -146,5 +146,55 @@ class TestSquareWingShape(unittest.TestCase):
         self.assertAlmostEqual(self.wing.aspect_ratio(), expected_AR)
 
 
+class TestWingShapeValidation(unittest.TestCase):
+    def setUp(self):
+        """Set up valid default inputs for re-use in test cases."""
+        self.valid_spans = [0.0, 2.5, 5.0]
+        self.valid_chords = [2.0, 1.5, 1.0]
+        self.valid_alphas = [0.05, 0.05, 0.05]
+
+    def test_valid_initialization(self):
+        """Test that a valid configuration initializes without errors."""
+        wing = ll.WingShape(self.valid_spans, self.valid_chords, self.valid_alphas)
+        
+        self.assertEqual(wing.span, 10.0)
+        np.testing.assert_array_equal(wing.spans, [0.0, 2.5, 5.0])
+        np.testing.assert_array_equal(wing.chords, [2.0, 1.5, 1.0])
+
+    def test_zero_chord_raises_value_error(self):
+        """Test that a chord of 0.0 raises a ValueError with informative message."""
+        chords_with_zero = [2.0, 1.5, 0.0]
+        
+        with self.assertRaises(ValueError) as ctx:
+            ll.WingShape(self.valid_spans, chords_with_zero, self.valid_alphas)
+        
+        # Check that the index (2) and offending value (0.0) appear in the error message
+        self.assertIn("strictly positive", str(ctx.exception))
+        self.assertIn("[2]", str(ctx.exception))
+        self.assertIn("[0.0]", str(ctx.exception))
+
+    def test_negative_chord_raises_value_error(self):
+        """Test that negative chords are caught and reported accurately."""
+        chords_with_negative = [-1.0, 1.5, -0.5]
+        
+        with self.assertRaises(ValueError) as ctx:
+            ll.WingShape(self.valid_spans, chords_with_negative, self.valid_alphas)
+        
+        self.assertIn("strictly positive", str(ctx.exception))
+        self.assertIn("[0, 2]", str(ctx.exception))
+        self.assertIn("[-1.0, -0.5]", str(ctx.exception))
+
+    def test_negative_span_raises_value_error(self):
+        """Test that negative span positions raise a ValueError."""
+        invalid_spans = [-1.0, 2.5, 5.0]
+        
+        with self.assertRaises(ValueError) as ctx:
+            ll.WingShape(invalid_spans, self.valid_chords, self.valid_alphas)
+        
+        self.assertIn("non-negative", str(ctx.exception))
+        self.assertIn("[0]", str(ctx.exception))
+        self.assertIn("[-1.0]", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,12 +28,13 @@ class TestLiftingLineSolution(unittest.TestCase):
             wingshape = ll.WingShape(spans, chords, alphas)
             solver = ll.LiftingLineSolver(wingshape)
 
-            # Modern functional API: solver returns a LiftingLineSolution object
-            sol = solver.solve(v_inf=v_inf)
+            # Pass rho to match the density used in manual q_inf calculation
+            sol = solver.solve(v_inf=v_inf, rho=rho)
 
             L, D = sol.L_total, sol.D_total
-            Cl = L / (0.5 * rho * v_inf**2 * S)
-            Cd = D / (0.5 * rho * v_inf**2 * S)
+            q_inf = 0.5 * rho * v_inf**2
+            Cl = L / (q_inf * S)
+            Cd = D / (q_inf * S)
 
             e_theory = Cl**2 / (np.pi * AR * Cd)
             e_solver = sol.oswald_efficiency
