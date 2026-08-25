@@ -252,6 +252,83 @@ class TestRatePerturbations(unittest.TestCase):
         np.testing.assert_allclose(dMz_dr_ana, dMz_dr_fd, rtol=1e-3)
 
 
+class TestSolveEquilibrium(unittest.TestCase):
+    def setUp(self):
+        """Builds a wing solver with an asymmetric aileron ControlSurface for equilibrium testing."""
+        self.span = 10.0
+        self.chord = 1.0
+        self.alpha_rad = np.radians(5.0)
+        self.v_inf = 20.0
+        self.rho = 1.225
+
+        spans = np.linspace(0.0, self.span / 2.0, 101)
+        chords = np.full_like(spans, self.chord)
+        alphas = np.full_like(spans, self.alpha_rad)
+
+        # Define an aileron ControlSurface over the outboard span (y = 2.5 to 5.0)
+        # symmetric=False applies anti-symmetric deflection (+left, -right)
+        aileron = ll.ControlSurface(
+            spans=np.array([2.5, 5.0]),
+            delta_alpha0=np.array([1.0, 1.0]),  # Unit effectiveness (1 rad/rad)
+            symmetric=False,
+        )
+
+        self.wing = ll.WingShape(
+            airfoil_spans=spans,
+            airfoil_chords=chords,
+            airfoil_alphas=alphas,
+            controls=[aileron],
+        )
+        self.solver = ll.LiftingLineSolver(self.wing, nr_of_coefs=80)
+
+    def test_equilibrium_symmetric_baseline(self):
+        """Verifies that an unperturbed symmetric wing yields p=0 and r=0 at equilibrium."""
+        sol = self.solver.solve_equilibrium(v_inf=self.v_inf, rho=self.rho)
+
+        self.assertAlmostEqual(sol.p, 0.0, places=6)
+        self.assertAlmostEqual(sol.r, 0.0, places=6)
+        np.testing.assert_allclose(sol.Mx, 0.0, atol=1e-5)
+        np.testing.assert_allclose(sol.Mz, 0.0, atol=1e-5)
+
+    def test_solve_equilibrium_with_control_input(self):
+        """Verifies zero net moments after trimming with control surface deflections."""
+        deltas = [np.radians(5.0)]
+
+        sol_trim = self.solver.solve_equilibrium(
+            v_inf=self.v_inf,
+            rho=self.rho,
+            deltas=deltas,
+            enforce_yaw_equilibrium=True,
+        )
+
+        # Moments must be trimmed to 0.0
+        np.testing.assert_allclose(sol_trim.Mx, 0.0, atol=1e-5)
+        np.testing.assert_allclose(sol_trim.Mz, 0.0, atol=1e-5)
+        self.assertNotAlmostEqual(sol_trim.p, 0.0, places=4)
+
+    def test_yaw_equilibrium_enforced_vs_constrained(self):
+        """Compares equilibrium roll rate when r is free vs when r is constrained to 0.0."""
+        deltas = [np.radians(5.0)]
+
+        sol_free = self.solver.solve_equilibrium(
+            v_inf=self.v_inf,
+            rho=self.rho,
+            deltas=deltas,
+            enforce_yaw_equilibrium=True,
+        )
+
+        sol_constrained = self.solver.solve_equilibrium(
+            v_inf=self.v_inf,
+            rho=self.rho,
+            deltas=deltas,
+            enforce_yaw_equilibrium=False,
+        )
+
+        self.assertEqual(sol_constrained.r, 0.0)
+        np.testing.assert_allclose(sol_constrained.Mx, 0.0, atol=1e-5)
+        self.assertNotAlmostEqual(sol_free.r, 0.0, places=5)
+        self.assertNotEqual(sol_free.p, sol_constrained.p)
+
 
 if __name__ == "__main__":
     unittest.main()

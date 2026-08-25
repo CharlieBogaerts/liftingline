@@ -23,6 +23,38 @@ class LiftingLineSolver:
         deltas: list[float] | np.ndarray = None,
         eval_derivs: bool = True,
         ) -> LiftingLineSolution:
+
+        """Solves Prandtl's Lifting-Line equations for 3D wing forces, moments, and stability derivatives.
+
+        Computes the spanwise circulation distribution, total lift and induced drag, 
+        rolling and yawing moments, and optional analytical sensitivity derivatives 
+        under prescribed roll rate, yaw rate, and control surface deflections.
+
+        Parameters
+        ----------
+        v_inf : float
+            Free-stream velocity magnitude [m/s]. Must be strictly positive.
+        rho : float, optional
+            Air density [kg/m^3]. Default is 1.225.
+        p : float, optional
+            Body-frame roll rate [rad/s]. Positive value represents right wing down. 
+            Default is 0.0.
+        r : float, optional
+            Body-frame yaw rate [rad/s]. Positive value represents nose right. 
+            Default is 0.0.
+        deltas : list[float] | np.ndarray, optional
+            Array or list of control surface deflection angles [rad] corresponding 
+            to each control defined in `wingshape.controls`. If None, defaults to 
+            zero deflection for all controls.
+        eval_derivs : bool, optional
+            If True, calculates the analytical stability matrix (d[Mx, Mz]/d[p, r]) 
+            and control authority matrix (d[Mx, Mz]/d[deltas]). If False, returns 
+            zero matrices for derivatives to speed up computation. Default is True.
+
+        Returns
+        -------
+        LiftingLineSolution
+        """
         
         b = self.wingshape.span
 
@@ -103,6 +135,78 @@ class LiftingLineSolver:
             control_derivs=ctrl_derivs,
         )
 
+    def solve_equilibrium(
+        self,
+        v_inf: float,
+        rho: float = 1.225,
+        deltas: list[float] | np.ndarray = None,
+        enforce_yaw_equilibrium: bool = True,
+        max_iter: int = 10,
+        tol: float = 1e-6,
+        eval_derivs: bool = False
+    ) -> LiftingLineSolution:
+        """Solves for steady-state body rates (p, r) that trim the wing to zero moment equilibrium.
+        
+        Calculates the steady-state roll rate (p) and yaw rate (r) required to 
+        balance aerodynamic moments (Mx = 0, Mz = 0) under specific control 
+        surface deflections using an analytical Jacobian inversion.
+
+        Parameters
+        ----------
+        v_inf : float
+            Free-stream velocity magnitude [m/s]. Must be strictly positive.
+        rho : float, optional
+            Air density [kg/m^3]. Default is 1.225.
+        deltas : list[float] | np.ndarray, optional
+            Array or list of control surface deflection angles [rad] corresponding 
+            to each control in `wingshape.controls`. If None, defaults to zero.
+        enforce_yaw_equilibrium : bool, optional
+            If True, solves the coupled 2x2 linear system for both p and r 
+            simultaneously (Mx = 0, Mz = 0).
+            If False, constrains yaw rate r = 0.0 and solves a 1D trim for 
+            roll rate p only (Mx = 0). Default is True.
+
+        Returns
+        -------
+        LiftingLineSolution
+        """
+        p, r = 0.0, 0.0
+
+        for _ in range(max_iter):
+            sol = self.solve(
+                v_inf=v_inf,
+                rho=rho,
+                p=p,
+                r=r,
+                deltas=deltas,
+                eval_derivs=True,
+            )
+
+            # Check convergence residual
+            M_res = np.array([sol.Mx, sol.Mz]) if enforce_yaw_equilibrium else np.array([sol.Mx])
+            if np.linalg.norm(M_res) < tol:
+                return sol
+
+            # Extract stability Jacobian block
+            # J = [[dMx/dp, dMx/dr], [dMz/dp, dMz/dr]]
+            J = sol.stability_derivs[:2, :2] if enforce_yaw_equilibrium else sol.stability_derivs[:1, :1]
+
+            # Newton-Raphson step: J * delta_rates = -M_res
+            delta_rates = np.linalg.solve(J, -M_res)
+            if enforce_yaw_equilibrium:
+                p += delta_rates[0]
+                r += delta_rates[1]
+            else:
+                p += delta_rates[0]
+
+        return self.solve(
+            v_inf=v_inf,
+            rho=rho,
+            p=p,
+            r=r,
+            deltas=deltas,
+            eval_derivs=eval_derivs,
+        )
     # --- Matrix Math Helpers ---
 
     def _calc_M_inv(self, v_theta, alpha_pr_over_p, r):
