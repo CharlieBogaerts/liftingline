@@ -38,12 +38,6 @@ class WingShape:
         self.spans = spans_raw[sort_idx]
         self.chords = chords_raw[sort_idx]
         self.alphas = alphas_raw[sort_idx]
-        
-        # Sort and store wing main planform arrays
-        sort_idx = np.argsort(airfoil_spans)
-        self.spans = np.asarray(airfoil_spans, dtype=float)[sort_idx]
-        self.chords = np.asarray(airfoil_chords, dtype=float)[sort_idx]
-        self.alphas = np.asarray(airfoil_alphas, dtype=float)[sort_idx]
 
         self.span = self.spans.max() * 2.0
         self.controls = controls if controls is not None else []
