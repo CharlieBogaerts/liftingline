@@ -192,9 +192,17 @@ class TestRectangularWing(unittest.TestCase):
         )
 
 
-class TestRatePerturbations(unittest.TestCase):
+import unittest
+import numpy as np
+import liftingline as ll
+from liftingline.control_surface import ControlSurface
+
+
+
+
+class TestPerturbationsAndSensitivity(unittest.TestCase):
     def setUp(self):
-        """Sets up a baseline rectangular wing solver."""
+        """Sets up a baseline wing solver with aileron and flap control surfaces."""
         self.span = 10.0
         self.chord = 1.0
         self.alpha_rad = np.radians(5.0)
@@ -205,32 +213,45 @@ class TestRatePerturbations(unittest.TestCase):
         chords = np.full_like(spans, self.chord)
         alphas = np.full_like(spans, self.alpha_rad)
 
-        self.wing = ll.WingShape(spans, chords, alphas)
+        # 1. Anti-symmetric Aileron (outboard span: y = 2.5 to 5.0)
+        aileron = ControlSurface(
+            spans=np.array([2.5, 5.0]),
+            delta_alpha0=np.array([1.0, 1.0]),
+            symmetric=False,
+        )
+
+        # 2. Symmetric Flap (inboard span: y = 0.0 to 2.5)
+        flap = ControlSurface(
+            spans=np.array([0.0, 2.5]),
+            delta_alpha0=np.array([1.0, 1.0]),
+            symmetric=True,
+        )
+
+        self.wing = ll.WingShape(
+            airfoil_spans=spans,
+            airfoil_chords=chords,
+            airfoil_alphas=alphas,
+            controls=[aileron, flap],
+        )
         self.solver = ll.LiftingLineSolver(self.wing, nr_of_coefs=80)
 
     def test_roll_rate_p_against_finite_difference(self):
         """Validates dMx/dp and dMz/dp using central finite difference."""
         p_base = 0.0
-        dp = 1e-3  # Small step size for linear perturbation
+        dp = 1e-3
 
-        # Evaluate at p + dp and p - dp
         sol_plus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, p=p_base + dp, eval_derivs=False)
         sol_minus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, p=p_base - dp, eval_derivs=False)
 
-        # Central finite difference derivatives
         dMx_dp_fd = (sol_plus.Mx - sol_minus.Mx) / (2.0 * dp)
         dMz_dp_fd = (sol_plus.Mz - sol_minus.Mz) / (2.0 * dp)
 
-        # Analytical derivatives from solver at base point
         sol_base = self.solver.solve(v_inf=self.v_inf, rho=self.rho, p=p_base, eval_derivs=True)
-        dMx_dp_ana = sol_base.stability_derivs[0, 0]  # [0, 0] is dMx/dp
-        dMz_dp_ana = sol_base.stability_derivs[1, 0]  # [1, 0] is dMz/dp
+        dMx_dp_ana = sol_base.stability_derivs[0, 0]
+        dMz_dp_ana = sol_base.stability_derivs[1, 0]
 
-        # Check analytical vs finite difference
-        np.testing.assert_allclose(dMx_dp_ana, dMx_dp_fd, rtol=1e-3)
-        np.testing.assert_allclose(dMz_dp_ana, dMz_dp_fd, rtol=1e-3)
-
-        # Verify physical sign (roll damping must be negative: dMx/dp < 0)
+        np.testing.assert_allclose(dMx_dp_ana, dMx_dp_fd, rtol=1e-3, atol=1e-6)
+        np.testing.assert_allclose(dMz_dp_ana, dMz_dp_fd, rtol=1e-3, atol=1e-6)
         self.assertLess(dMx_dp_ana, 0.0, "Roll rate damping dMx/dp must be negative.")
 
     def test_yaw_rate_r_against_finite_difference(self):
@@ -245,11 +266,55 @@ class TestRatePerturbations(unittest.TestCase):
         dMz_dr_fd = (sol_plus.Mz - sol_minus.Mz) / (2.0 * dr)
 
         sol_base = self.solver.solve(v_inf=self.v_inf, rho=self.rho, r=r_base, eval_derivs=True)
-        dMx_dr_ana = sol_base.stability_derivs[0, 1]  # [0, 1] is dMx/dr
-        dMz_dr_ana = sol_base.stability_derivs[1, 1]  # [1, 1] is dMz/dr
+        dMx_dr_ana = sol_base.stability_derivs[0, 1]
+        dMz_dr_ana = sol_base.stability_derivs[1, 1]
 
-        np.testing.assert_allclose(dMx_dr_ana, dMx_dr_fd, rtol=1e-3)
-        np.testing.assert_allclose(dMz_dr_ana, dMz_dr_fd, rtol=1e-3)
+        np.testing.assert_allclose(dMx_dr_ana, dMx_dr_fd, rtol=1e-3, atol=1e-6)
+        np.testing.assert_allclose(dMz_dr_ana, dMz_dr_fd, rtol=1e-3, atol=1e-6)
+
+    def test_control_derivs_against_finite_difference(self):
+        """Validates dMx/d(delta_k) and dMz/d(delta_k) for each control surface using central finite difference."""
+        ddelta = 1e-4  # Step size in radians
+        base_deltas = np.zeros(self.wing.nr_of_controls)
+
+        # Baseline solution containing analytical derivatives
+        sol_base = self.solver.solve(
+            v_inf=self.v_inf,
+            rho=self.rho,
+            deltas=base_deltas,
+            eval_derivs=True,
+        )
+
+        for k in range(self.wing.nr_of_controls):
+            # Perturb control k up and down
+            deltas_plus = base_deltas.copy()
+            deltas_minus = base_deltas.copy()
+            deltas_plus[k] += ddelta
+            deltas_minus[k] -= ddelta
+
+            # Finite difference solves
+            sol_plus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, deltas=deltas_plus, eval_derivs=False)
+            sol_minus = self.solver.solve(v_inf=self.v_inf, rho=self.rho, deltas=deltas_minus, eval_derivs=False)
+
+            # Central finite difference
+            dMx_ddelta_fd = (sol_plus.Mx - sol_minus.Mx) / (2.0 * ddelta)
+            dMz_ddelta_fd = (sol_plus.Mz - sol_minus.Mz) / (2.0 * ddelta)
+
+            # Analytical derivatives from solver
+            dMx_ddelta_ana = sol_base.control_derivs[0, k]
+            dMz_ddelta_ana = sol_base.control_derivs[1, k]
+
+            # Compare analytical vs numerical finite differences
+            np.testing.assert_allclose(dMx_ddelta_ana, dMx_ddelta_fd, rtol=1e-3, atol=1e-6)
+            np.testing.assert_allclose(dMz_ddelta_ana, dMz_ddelta_fd, rtol=1e-3, atol=1e-6)
+
+            # Physical checks for specific control surface types:
+            if not self.wing.controls[k].symmetric:
+                # Aileron (k=0): Deflection MUST produce a non-zero rolling moment
+                self.assertNotAlmostEqual(dMx_ddelta_ana, 0.0, places=3)
+            else:
+                # Flap (k=1): Symmetric deflection on symmetric wing MUST produce dMx/ddelta = 0
+                self.assertAlmostEqual(dMx_ddelta_ana, 0.0, places=5)
 
 
 class TestSolveEquilibrium(unittest.TestCase):
