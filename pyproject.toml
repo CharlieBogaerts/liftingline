@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liftingline"
+version = "0.1.0"
+description = "Linear lifting line analysis for wings"
+authors = [
+    { name = "Charlie" }
+]
+requires-python = ">=3.9"
+
+# Add any libraries your package depends on
+dependencies = [
+    "numpy"
+]
+
+# Tell setuptools explicitly to only package liftingline/
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["liftingline*"]
